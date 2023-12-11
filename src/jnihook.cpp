@@ -7,6 +7,8 @@
 
 extern "C" void jnihook_gateway();
 
+extern "C" VMStructEntry *gHotSpotVMStructs;
+
 struct hook_info {
 	int (*callback)(jmethodID mID, void *senderSP, void *thread);
 	address orig;
@@ -31,6 +33,17 @@ JNIHook_Attach(JavaVM *jvm, jmethodID mID, int (*callback)(jmethodID mID, void *
 
 	JNIEnv *jni;
 	jvmtiEnv *jvmti;
+
+	std::cout << "gHotSpotVMStructs: " << gHotSpotVMStructs << std::endl;
+
+	std::cout << "Method fields: " << std::endl;
+	for (int i = 0; gHotSpotVMStructs[i].typeName != NULL; ++i) {
+		if (strcmp(gHotSpotVMStructs[i].typeName, "Method"))
+			continue;
+
+		// std::cout << "typeName: " << gHotSpotVMStructs[i].typeName << std::endl;
+		std::cout << "  " << gHotSpotVMStructs[i].typeString << " " << gHotSpotVMStructs[i].fieldName << " @ " << gHotSpotVMStructs[i].offset << std::endl;
+	}
 
 	std::cout << "attaching hook to: " << mID << std::endl;
 	if (jvm->GetEnv((void **)&jni, JNI_VERSION_1_6) != JNI_OK)
