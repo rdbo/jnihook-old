@@ -1,17 +1,9 @@
 .text
-.global jnihook_comp_gateway
 .global jnihook_gateway
 .global jnihook_gateway_size
-.global jnihook_comp_gateway_size
-.global jnihook_gateway_common
 .extern JNIHook_CallHandler
 
-jnihook_comp_gateway:
-        mov $0x1, %rax
-        jmp jnihook_gateway_common
 jnihook_gateway:
-        mov $0x0, %rax
-jnihook_gateway_common:
         push %rbx
         push %rcx
         push %rdx
@@ -29,7 +21,6 @@ jnihook_gateway_common:
         mov %rbx, %rdi
         mov %r13, %rsi
         mov %r15, %rdx
-        mov %rax, %rcx
         call JNIHook_CallHandler
 
         pop %r15
@@ -49,4 +40,3 @@ jnihook_gateway_common:
         jmp *%rax
 
 jnihook_gateway_size: .int . - jnihook_gateway
-jnihook_comp_gateway_size: .int . - jnihook_comp_gateway

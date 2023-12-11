@@ -29,8 +29,7 @@ static void start(JavaVM *jvm, JNIEnv *jni)
 	}
 	std::cout << "[*] myFunction ID: " << myFunctionID << std::endl;
 
-	JNIHook_Init();
-	JNIHook_Place(myFunctionID, hkMyFunction);
+	JNIHook_Attach(jvm, myFunctionID, hkMyFunction);
 }
 
 void __attribute__((constructor))

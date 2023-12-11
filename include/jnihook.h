@@ -4,12 +4,9 @@
 #include <jni.h>
 
 int
-JNIHook_Init();
+JNIHook_Attach(JavaVM *jvm, jmethodID mID, int (*callback)(jmethodID mID, void *senderSP, void *thread));
 
 int
-JNIHook_Place(jmethodID mID, int (*callback)(jmethodID mID, void *senderSP, void *thread));
-
-int
-JNIHook_Shutdown();
+JNIHook_Detach(jmethodID mID);
 
 #endif

@@ -1,142 +1,71 @@
 #include <jnihook.h>
-#include <libmem/libmem.hpp>
+#include <jvmti.h>
 #include <iostream>
 #include <stdarg.h>
 #include <unordered_map>
 #include "jvm.hpp"
 
 extern "C" void jnihook_gateway();
-extern "C" void jnihook_comp_gateway();
-extern "C" void jnihook_gateway_common();
-
-enum CompilerActivity {
-	stop_compilation = 0,
-	run_compilation = 1,
-	shutdown_compilation = 2
-};
-
-static lm_module_t libjvm = { .base = LM_ADDRESS_BAD };
-static CompilerActivity *_should_compile_new_jobs;
-static CompilerActivity _should_compile_new_jobs_orig;
-
-#define JNIHOOK_DEBUG
-#ifdef JNIHOOK_DEBUG
-void LOG(const char *fmt, ...) {
-	va_list va;
-	va_start(va, fmt);
-
-	printf("[JNIHook] ");
-	vprintf(fmt, va);
-
-	va_end(va);
-}
-#else
-void LOG(const char *fmt, ...) {
-	
-}
-#endif
 
 struct hook_info {
-	address orig_i2c;
-	address orig_c2i;
-	int (*callback)(jmethodID, void *, void *);
+	int (*callback)(jmethodID mID, void *senderSP, void *thread);
+	address orig;
 };
 
-static auto hook_table = std::unordered_map<Method *, hook_info>();
+std::unordered_map<Method *, hook_info> hook_table;
 
 extern "C"
-address JNIHook_CallHandler(Method *method, void *senderSP, void *thread, uintptr_t is_compiled)
+void *JNIHook_CallHandler(Method *method, void *senderSP, void *thread)
 {
-#	ifdef JNIHOOK_DEBUG
-	std::cout << "[JNIHook] CallHandler called from gateway" << std::endl;
-	std::cout << "[JNIHook] method: " << method << std::endl;
-	std::cout << "[JNIHook] senderSP: " << senderSP << std::endl;
-	std::cout << "[JNIHook] thread: " << thread << std::endl;
-	std::cout << "[JNIHook] is_compiled? " << (is_compiled ? "true" : "false") << std::endl;
-#	endif
+	printf("[*] JNI hook call handler\n");
 
-	// TODO: actually lookup method in hook table
-	auto callback = hook_table.begin()->second.callback;
-	address orig = is_compiled ? hook_table.begin()->second.orig_c2i : hook_table.begin()->second.orig_i2c;
-#	ifdef JNIHOOK_DEBUG
-	std::cout << "[JNIHook] Callback: " << (void *)callback << std::endl;
-	std::cout << "[JNIHook] JmpBack: " << (void *)orig << std::endl;
-#	endif
-
-	if (is_compiled) {
-		size_t nargs = method->_constMethod->_size_of_parameters;
-		int extraspace = nargs * sizeof(address) /* + sizeof(address) */;
-		// TODO: align_up
-		senderSP = (void *)((lm_address_t)senderSP - extraspace);
-	}
-
-	int result = callback((jmethodID)&method, senderSP, thread);
-
-	return orig;
+	hook_table[method].callback((jmethodID)&method, senderSP, thread);
+	
+	return hook_table[method].orig;
 }
 
 int
-JNIHook_Init()
+JNIHook_Attach(JavaVM *jvm, jmethodID mID, int (*callback)(jmethodID mID, void *senderSP, void *thread))
 {
 	int ret = -1;
-	
-	if (LM_FindModule((lm_string_t)"libjvm.so", &libjvm) != LM_TRUE) {
-		LOG("Unable to find JVM module!\n");
+
+	JNIEnv *jni;
+	jvmtiEnv *jvmti;
+
+	std::cout << "attaching hook to: " << mID << std::endl;
+	if (jvm->GetEnv((void **)&jni, JNI_VERSION_1_6) != JNI_OK)
 		return ret;
-	}
 
-	LOG("Found libjvm module: %s @ %p\n", libjvm.name, libjvm.base);
-
-	// TODO: Add pattern scan instead of offset
-	_should_compile_new_jobs = (CompilerActivity *)(libjvm.base + 0x11172a8);
-	LOG("_should_compile_new_jobs: %p\n", _should_compile_new_jobs);
-
-	_should_compile_new_jobs_orig = *_should_compile_new_jobs;
-	LOG("original _should_compile_new_jobs: %d\n", _should_compile_new_jobs_orig);
-
-	*_should_compile_new_jobs = shutdown_compilation;
-	LOG("Compiler shut down\n");
-
-	ret = 0;
-	return ret;
-}
-
-int
-JNIHook_Place(jmethodID mID, int (*callback)(jmethodID mID, void *senderSP, void *thread))
-{
-	int ret = -1;
-	Method *method;
-
-	LOG("jmethodID: %p\n", (void *)mID);
-
-	method = *(Method **)mID;
-	LOG("Method: %p\n", method);
-
-	LOG("Method _from_interpreted_entry: %p\n", method->_from_interpreted_entry);
-	hook_table[method] = hook_info {
-		.orig_i2c = (address)method->_from_interpreted_entry,
-		.orig_c2i = (address)method->_adapter->_c2i_entry,
-		.callback = callback
-	};
-
-	LOG("Method _from_compiled_entry: %p\n", method->_from_compiled_entry);
-
-	LOG("Method _code: %p\n", method->_code);
-
-	LOG("Method _adapter: %p\n", method->_adapter);
-
-	LOG("Method _adapter->_c2i_entry: %p\n", method->_adapter->_c2i_entry);
+	std::cout << "jni: " << jni << std::endl;
 	
+	if (jvm->GetEnv((void **)&jvmti, JVMTI_VERSION_1_0) != JNI_OK)
+		return ret;
+
+	std::cout << "jvmti: " << jvmti << std::endl;
+
+	jvmtiCapabilities capabilities = { .can_retransform_classes = JVMTI_ENABLE };
+	jvmti->AddCapabilities(&capabilities);
+	std::cout << "added capabilities to jvmti" << std::endl;
+
+	/* Force class methods to be interpreted */
+	jclass klass;
+	if (jvmti->GetMethodDeclaringClass(mID, &klass) != JNI_OK)
+		return ret;
+	jvmti->RetransformClasses(1, &klass);
+	jni->DeleteLocalRef(klass);
+
+	Method *method = *(Method **)mID;
+
+	// Prevent method from being compiled
+	method->_access_flags._flags |= JVM_ACC_NOT_C2_COMPILABLE | JVM_ACC_NOT_C1_COMPILABLE | JVM_ACC_NOT_C2_OSR_COMPILABLE;
+
+	hook_table[method].orig = method->_from_interpreted_entry;
+	hook_table[method].callback = callback;
+
 	method->_from_interpreted_entry = (address)jnihook_gateway;
-
-	if (method->_code) {
-		LOG("_code entry point: %p\n", method->_code->entry_point());
-		// TODO: Implement
-	} else {
-		method->_adapter->_c2i_entry = (address)jnihook_comp_gateway;
-	}
-
-	LOG("Hooks placed for method: %p\n", mID);
+	method->_i2i_entry = (address)jnihook_gateway;
+	method->_code = NULL;
+	method->_from_compiled_entry = method->_adapter->_c2i_entry;
 
 	ret = 0;
 	return ret;
