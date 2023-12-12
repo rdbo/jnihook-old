@@ -18,7 +18,8 @@ public class Dummy {
         }
 
         while (true) {
-            myFunction(10, "Dummy");
+            int result = myFunction(10, "Dummy");
+            System.out.println("Result: " + result);
 
             try {
                 Thread.sleep(1000);

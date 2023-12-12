@@ -4,6 +4,7 @@
 .extern JNIHook_CallHandler
 
 jnihook_gateway:
+        # Back up registers
         push %rbx
         push %rcx
         push %rdx
@@ -18,11 +19,13 @@ jnihook_gateway:
         push %r14
         push %r15
 
+        # Setup and call the CallHandler
         mov %rbx, %rdi
         mov %r13, %rsi
         mov %r15, %rdx
         call JNIHook_CallHandler
 
+        # Restore the registers
         pop %r15
         pop %r14
         pop %r13
@@ -37,6 +40,10 @@ jnihook_gateway:
         pop %rcx
         pop %rbx
 
+        # Modify return value
+        # mov $69, %rax
+        # ret
+        # Jump to the original gateway
         jmp *%rax
 
 jnihook_gateway_size: .int . - jnihook_gateway
