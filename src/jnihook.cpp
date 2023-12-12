@@ -26,6 +26,8 @@ void *JNIHook_CallHandler(Method *method, void *senderSP, void *thread)
 	return hook_table[method].orig;
 }
 
+static uint64_t from_interp_entry_offset = 0;
+
 int
 JNIHook_Attach(JavaVM *jvm, jmethodID mID, int (*callback)(jmethodID mID, void *senderSP, void *thread))
 {
@@ -43,6 +45,9 @@ JNIHook_Attach(JavaVM *jvm, jmethodID mID, int (*callback)(jmethodID mID, void *
 
 		// std::cout << "typeName: " << gHotSpotVMStructs[i].typeName << std::endl;
 		std::cout << "  " << gHotSpotVMStructs[i].typeString << " " << gHotSpotVMStructs[i].fieldName << " @ " << gHotSpotVMStructs[i].offset << std::endl;
+
+		if (!strcmp(gHotSpotVMStructs[i].fieldName, "_from_interpreted_entry"))
+			from_interp_entry_offset = gHotSpotVMStructs[i].offset;
 	}
 
 	std::cout << "attaching hook to: " << mID << std::endl;
@@ -75,7 +80,7 @@ JNIHook_Attach(JavaVM *jvm, jmethodID mID, int (*callback)(jmethodID mID, void *
 	hook_table[method].orig = method->_from_interpreted_entry;
 	hook_table[method].callback = callback;
 
-	method->_from_interpreted_entry = (address)jnihook_gateway;
+	*(address *)((uintptr_t)method + from_interp_entry_offset) = (address)jnihook_gateway;
 	method->_i2i_entry = (address)jnihook_gateway;
 	method->_code = NULL;
 	method->_from_compiled_entry = method->_adapter->_c2i_entry;
